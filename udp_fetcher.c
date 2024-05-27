@@ -1,6 +1,7 @@
 #pragma comment(lib, "ws2_32.lib")
 #define WIN                 // WIN for Winsock and BSD for BSD sockets
-
+#define WIN32                 // WIN for Winsock and BSD for BSD sockets
+#define ENABLE_ZENTIMER
 //----- Include files ---------------------------------------------------------
 #include <stdio.h>          // Needed for printf()
 #include <string.h>         // Needed for memcpy() and strcpy()
@@ -19,21 +20,25 @@
   #include <netdb.h>        // Needed for sockets stuff
 #endif
 
+#include "zentimer.h"
+
 //----- Defines ---------------------------------------------------------------
 #define  PORT_NUM           9600  // Port number used
-#define  IP_ADDR      "x.x.x.x" // IP address of public server1 (*** HARDWIRED ***)
+#define  IP_ADDR      "x.x.x.x"   // IP address of Public server (*** HARDWIRED ***)
 #define MPX_PORT 8545
-#define MPX_HOST "192.168.4.1"
+#define MPX_HOST "x.x.x.x"        // MPX_HOST on lan
 
 //===== Main program ==========================================================
+
+
 void usleep(__int64 usec);
 void request_handshake(int client_s,struct sockaddr_in server_addr);
 void ping(int client_s,struct sockaddr_in server_addr);
 
-double seconds_since_connect = 0;
-double seconds_since_start2 = 0;
-time_t start = 0;
-time_t start2 = 0;
+
+
+ztimer_t PingTimer;
+ztimer_t ConnectTimer;
 int ping_enabled = 0;
 
 #ifdef WIN
@@ -94,24 +99,24 @@ void main(void)
   // Wait to receive a message (need to spin loop on the receive)
   addr_len = sizeof(server_addr);
   retcode = 0;
-
-  start = time(0);
-  start2 = time(0);
+	//ZenTimerStart(&PingTimer);
+  ZenTimerStart(&ConnectTimer);
   while (1)
   {
 
 	
-	
-	seconds_since_connect = difftime( time(0), start);	   
-	//printf("seconds start_connect: %lf %lld\n",seconds_since_connect,start);
+	uint64_t seconds_since_connect=0;
+	ZenTimerElapsed(&ConnectTimer, &seconds_since_connect); 	
+	seconds_since_connect=seconds_since_connect/1000000;
+	//printf("seconds start_connect: %lld\n",seconds_since_connect);
 	if (seconds_since_connect > 3) {
-	  start = time(0);
-	  seconds_since_connect = 0;
+	  printf("seconds start_connect: %lld\n",seconds_since_connect);
+	  ZenTimerStop2(&ConnectTimer);
 	  request_handshake(client_s, server_addr);
-	  //handshakeflag=1;
 	  continue;
-	} else {
-	ping_enabled = 1; 
+	}else{
+	if (ping_enabled == 0) { ping_enabled = 1; }
+    if (PingTimer.state == ZTIMER_INACTIVE) { ZenTimerStart(&PingTimer); }
 	}
 
 	
@@ -135,14 +140,14 @@ void main(void)
 			printf("*** ERROR - sendto() failed \n");
 			exit(-1);
 		} else {
-		start = time(0);
-		seconds_since_start2 = difftime( time(0), start2);	   
-
-			if ((ping_enabled == 1) && (seconds_since_start2 > 4) && (seconds_since_connect<1)) {
-			start2 = time(0);
-			seconds_since_start2 = 0;
+		uint64_t time_since_ping=0;
+		ZenTimerElapsed(&PingTimer, &time_since_ping); 
+		time_since_ping=time_since_ping/1000000;
+			if ((ping_enabled == 1) && (time_since_ping > 4) && (seconds_since_connect<1)) {
+			//printf("Timer Triggered %llu\n",time_since_ping);
 			ping_enabled = 0;
 			ping(client_s, server_addr);
+			ZenTimerStart(&PingTimer);
 			}		
 		memset(&in_buf, 0, sizeof(in_buf));
 		}
@@ -168,6 +173,8 @@ void main(void)
 #endif
 }
 
+
+
 void usleep(__int64 usec) 
 { 
     HANDLE timer; 
@@ -189,7 +196,7 @@ void request_handshake(int client_s, struct sockaddr_in server_addr) {
 	ping_enabled = 0;
 
 // Assign a message to buffer out_buf
-	printf("Sending... Handshake timeout %lf\n", seconds_since_connect);
+	printf("Sending... Handshake timeout \n");
 	strcpy(handshake_buffer, "handshake");
 
   // Now send the message to server.
@@ -209,7 +216,7 @@ char handshake_buffer[25]="P";
 int tx;
 // Assign a message to buffer out_buf
   
-  printf("Sending... ping timeout %lf\n",seconds_since_start2);
+  printf("Sending... ping\n");
   //strcpy(handshake_buffer, "P");
 
   // Now send the message to server.
